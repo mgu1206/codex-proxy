@@ -1,0 +1,25 @@
+{
+  "name": "codex-proxy",
+  "version": "0.2.0",
+  "type": "module",
+  "bin": {
+    "codex-proxy": "src/cli.ts"
+  },
+  "scripts": {
+    "dev": "bun run --watch src/cli.ts serve",
+    "start": "bun run src/cli.ts start",
+    "serve": "bun run src/cli.ts serve",
+    "serve:no-open": "bun run src/cli.ts serve --no-open",
+    "serve:api-only": "bun run src/cli.ts start",
+    "auth": "bun run src/cli.ts auth",
+    "auth:device": "bun run src/cli.ts auth --device",
+    "reset-key": "bun run src/cli.ts reset-key"
+  },
+  "dependencies": {
+    "hono": "^4.7.0"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.7.0"
+  }
+}

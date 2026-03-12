@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+{% set active = "home" %}
+{% block title %}{{ session.title or "Chat" }} - Codex Proxy{% endblock %}
+
+{% block content %}
+<div class="flex justify-between mb-2">
+  <div>
+    <h1>{{ session.title or "Untitled Session" }}</h1>
+    <p class="text-muted text-sm">{{ session.model }}
+      {% if session.system_prompt %} · system prompt set{% endif %}
+      {% if session.summary %} · <span style="color:var(--yellow)">compacted</span>{% endif %}
+    </p>
+  </div>
+  <a href="/" class="btn">Back</a>
+</div>
+
+<!-- Chat Messages -->
+<div id="messages" style="display:flex;flex-direction:column;gap:.5rem;margin-bottom:1rem;">
+  {% if session.summary %}
+  <div class="card" style="border-color:var(--yellow);border-style:dashed;">
+    <div class="text-sm" style="color:var(--yellow);margin-bottom:.25rem;">Compacted Summary</div>
+    <div class="text-sm">{{ session.summary[:500] }}{% if session.summary|length > 500 %}...{% endif %}</div>
+  </div>
+  {% endif %}
+
+  {% for msg in session.messages %}
+  <div class="card" style="{% if msg.role == 'user' %}border-left:3px solid var(--accent);{% elif msg.role == 'assistant' %}border-left:3px solid var(--green);{% else %}border-left:3px solid var(--muted);{% endif %}">
+    <div class="text-sm" style="color:var(--muted);margin-bottom:.25rem;">
+      {% if msg.role == 'user' %}You{% elif msg.role == 'assistant' %}Assistant{% else %}{{ msg.role }}{% endif %}
+    </div>
+    <div class="text-sm" style="white-space:pre-wrap;">{{ msg.content }}</div>
+  </div>
+  {% endfor %}
+</div>
+
+<!-- Loading indicator -->
+<div id="loading" class="hidden" style="text-align:center;padding:1rem;">
+  <span class="spinner"></span>
+  <span class="text-sm text-muted"> Thinking...</span>
+</div>
+
+<!-- Input -->
+<div style="position:sticky;bottom:1rem;">
+  <form onsubmit="sendMessage(event)" class="flex gap-2">
+    <input id="chat-input" class="input" placeholder="Type a message..."
+           autofocus autocomplete="off" style="flex:1;">
+    <button type="submit" class="btn btn-primary">Send</button>
+  </form>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const sessionId = "{{ session.id }}";
+  const messagesEl = document.getElementById('messages');
+  const loadingEl = document.getElementById('loading');
+  const inputEl = document.getElementById('chat-input');
+
+  function addMessage(role, content) {
+    const div = document.createElement('div');
+    div.className = 'card';
+    const colors = { user: 'var(--accent)', assistant: 'var(--green)', system: 'var(--muted)' };
+    div.style.borderLeft = `3px solid ${colors[role] || 'var(--muted)'}`;
+    const label = role === 'user' ? 'You' : role === 'assistant' ? 'Assistant' : role;
+    div.innerHTML = `
+      <div class="text-sm" style="color:var(--muted);margin-bottom:.25rem;">${label}</div>
+      <div class="text-sm" style="white-space:pre-wrap;">${escapeHtml(content)}</div>
+    `;
+    messagesEl.appendChild(div);
+    div.scrollIntoView({ behavior: 'smooth' });
+  }
+
+  function escapeHtml(text) {
+    const el = document.createElement('span');
+    el.textContent = text;
+    return el.innerHTML;
+  }
+
+  async function sendMessage(e) {
+    e.preventDefault();
+    const content = inputEl.value.trim();
+    if (!content) return;
+
+    inputEl.value = '';
+    addMessage('user', content);
+    loadingEl.classList.remove('hidden');
+
+    try {
+      const r = await fetch(`/sessions/${sessionId}/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content }),
+      });
+      const data = await r.json();
+      loadingEl.classList.add('hidden');
+
+      if (data.message) {
+        addMessage('assistant', data.message);
+        if (data.compacted) {
+          const notice = document.createElement('div');
+          notice.className = 'text-sm text-muted';
+          notice.style.textAlign = 'center';
+          notice.style.padding = '.5rem';
+          notice.textContent = 'Context was auto-compacted to fit within limits.';
+          messagesEl.appendChild(notice);
+        }
+      } else if (data.error) {
+        addMessage('system', 'Error: ' + (data.detail || data.error));
+      }
+    } catch (err) {
+      loadingEl.classList.add('hidden');
+      addMessage('system', 'Error: ' + err.message);
+    }
+
+    inputEl.focus();
+  }
+</script>
+{% endblock %}

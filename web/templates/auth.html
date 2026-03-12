@@ -1,0 +1,401 @@
+{% extends "base.html" %}
+{% set active = "auth" %}
+{% block title %}Authentication - Codex Proxy{% endblock %}
+
+{% block content %}
+<h1>Authentication</h1>
+<p class="text-muted mb-2">Connect your ChatGPT Pro/Plus account</p>
+
+<!-- Current Status -->
+<div class="card">
+  <div class="flex justify-between">
+    <h2>Status</h2>
+    <span id="status-badge" class="badge
+      {% if status and status.authenticated and not status.expired %}badge-green{% else %}badge-red{% endif %}">
+      {% if status and status.authenticated and not status.expired %}Connected
+      {% elif status and status.expired %}Expired
+      {% else %}Not Connected{% endif %}
+    </span>
+  </div>
+  {% if status and status.authenticated %}
+  <div class="flex justify-between mt-2">
+    <span class="text-sm">Account: <span class="mono">{{ status.accountId or "N/A" }}</span></span>
+    <button class="btn btn-danger" style="padding:.3rem .6rem;font-size:.75rem;"
+            onclick="logout()">Logout</button>
+  </div>
+  {% endif %}
+</div>
+
+<!-- Auth Methods -->
+<div id="auth-methods" class="{% if status and status.authenticated and not status.expired %}hidden{% endif %}">
+  <h2 class="mt-3 mb-2">Choose Authentication Method</h2>
+
+  <!-- Method 1: Device Code (Recommended) -->
+  <div class="card" style="cursor:pointer;" onclick="startDevice()" id="method-device">
+    <div class="flex justify-between">
+      <div>
+        <strong>Device Code</strong>
+        <span class="badge badge-green" style="margin-left:.5rem;">Recommended</span>
+        <p class="text-muted text-sm">Get a code, enter it on any device. Simplest method for headless servers.</p>
+      </div>
+      <span style="font-size:1.5rem;">&#128241;</span>
+    </div>
+  </div>
+
+  <!-- Method 2: Headless (paste URL) -->
+  <div class="card" style="cursor:pointer;" onclick="startHeadless()" id="method-headless">
+    <div class="flex justify-between">
+      <div>
+        <strong>Headless OAuth</strong>
+        <p class="text-muted text-sm">Open a link, authenticate, paste the redirect URL back. Alternative for headless servers.</p>
+      </div>
+      <span style="font-size:1.5rem;">&#128279;</span>
+    </div>
+  </div>
+
+  <!-- Method 3: Browser -->
+  <div class="card" style="cursor:pointer;" onclick="startBrowser()" id="method-browser">
+    <div class="flex justify-between">
+      <div>
+        <strong>Browser OAuth</strong>
+        <p class="text-muted text-sm">Direct sign-in popup. Works when this machine has a browser or you are port-forwarding.</p>
+      </div>
+      <span style="font-size:1.5rem;">&#127760;</span>
+    </div>
+  </div>
+</div>
+
+<!-- Auth Flow UI (hidden by default) -->
+<div id="auth-flow" class="hidden">
+
+  <!-- Device flow -->
+  <div id="flow-device" class="card hidden">
+    <h2>Device Code Authentication</h2>
+    <p class="text-sm mb-2">Visit the URL below and enter this code:</p>
+    <div class="device-code" id="device-code">----</div>
+    <div class="flex gap-2 mt-2" style="justify-content:center;">
+      <button class="btn" onclick="copyDeviceCode()" style="font-size:.75rem;">Copy Code</button>
+    </div>
+    <p class="text-sm mt-2" style="text-align:center;">
+      <a id="device-link" href="#" target="_blank">Open verification page</a>
+    </p>
+    <div class="flex gap-2 mt-3" style="justify-content:center;">
+      <span class="spinner"></span>
+      <span class="text-sm text-muted" id="device-status">Waiting for authorization...</span>
+    </div>
+    <p class="text-sm text-muted mt-2" style="text-align:center;" id="device-timer"></p>
+  </div>
+
+  <!-- Headless flow -->
+  <div id="flow-headless" class="card hidden">
+    <h2>Headless OAuth</h2>
+
+    <div id="headless-step1">
+      <p class="text-sm mb-2"><strong>Step 1:</strong> Open this link on any device with a browser:</p>
+      <div style="background:var(--bg);padding:.75rem;border-radius:var(--radius);border:1px solid var(--border);word-break:break-all;">
+        <a id="headless-link" href="#" target="_blank" class="text-sm" style="word-break:break-all;"></a>
+      </div>
+      <button class="btn mt-2" onclick="navigator.clipboard.writeText(document.getElementById('headless-link').href)" style="font-size:.75rem;">
+        Copy Link
+      </button>
+
+      <p class="text-sm mt-3"><strong>Step 2:</strong> Sign in to your ChatGPT account normally.</p>
+
+      <div class="card mt-2" style="border-color:var(--yellow);border-style:dashed;padding:.75rem;">
+        <p class="text-sm" style="color:var(--yellow);"><strong>Step 3:</strong> After sign-in, your browser will show an error page -- this is expected and correct!</p>
+        <p class="text-sm mt-2">The page is <em>supposed</em> to fail. Look at your browser's <strong>address bar</strong>. It will contain a URL like:</p>
+        <div class="mono text-sm mt-2" style="background:var(--bg);padding:.5rem;border-radius:var(--radius);overflow-x:auto;">
+          http://localhost:1455/auth/callback?code=abc123&amp;state=xyz
+        </div>
+      </div>
+
+      <p class="text-sm mt-3 mb-2"><strong>Step 4:</strong> Select the <strong>entire URL</strong> from the address bar, copy it, and paste it here:</p>
+      <div class="flex gap-2">
+        <input id="headless-callback-url" class="input" placeholder="http://localhost:1455/auth/callback?code=...&state=..." style="flex:1;">
+        <button class="btn btn-primary" onclick="submitCallbackUrl()">Submit</button>
+      </div>
+      <p id="headless-error" class="text-sm mt-2 hidden" style="color:var(--red);"></p>
+      <p class="text-sm text-muted mt-2" id="headless-timer"></p>
+    </div>
+
+    <div id="headless-step2" class="hidden" style="text-align:center;padding:1rem;">
+      <span class="spinner"></span>
+      <span class="text-sm text-muted"> Exchanging token...</span>
+    </div>
+  </div>
+
+  <!-- Browser flow -->
+  <div id="flow-browser" class="card hidden">
+    <h2>Browser Authentication</h2>
+    <p class="text-sm">A new window should open. Complete sign-in there.</p>
+    <p class="text-sm mt-2">If it didn't open: <a id="browser-link" href="#" target="_blank">Click here</a></p>
+    <div class="flex gap-2 mt-3">
+      <span class="spinner"></span>
+      <span class="text-sm text-muted" id="browser-status">Waiting for authentication...</span>
+    </div>
+  </div>
+
+  <button class="btn mt-2" onclick="cancelAuth()">Cancel</button>
+</div>
+
+<!-- Success -->
+<div id="auth-success" class="card hidden" style="border-color:var(--green);">
+  <div style="text-align:center; padding:1rem;">
+    <div style="font-size:2.5rem;">&#9989;</div>
+    <h2 style="color:var(--green);">Authentication Successful</h2>
+    <p class="text-sm mt-2">Your ChatGPT account is now connected.</p>
+    <p class="text-sm text-muted mt-2" id="redirect-countdown">Redirecting to dashboard in 3...</p>
+    <a href="/" class="btn btn-primary mt-3">Go to Dashboard</a>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  let ws = null;
+  let pollInterval = null;
+  let countdownTimer = null;
+
+  function showFlow(type) {
+    document.getElementById('auth-methods').classList.add('hidden');
+    document.getElementById('auth-flow').classList.remove('hidden');
+    document.querySelectorAll('[id^="flow-"]').forEach(el => el.classList.add('hidden'));
+    document.getElementById('flow-' + type).classList.remove('hidden');
+  }
+
+  function cancelAuth() {
+    cleanup();
+    document.getElementById('auth-flow').classList.add('hidden');
+    document.getElementById('auth-methods').classList.remove('hidden');
+  }
+
+  function cleanup() {
+    if (ws) { ws.close(); ws = null; }
+    if (pollInterval) { clearInterval(pollInterval); pollInterval = null; }
+    if (countdownTimer) { clearInterval(countdownTimer); countdownTimer = null; }
+  }
+
+  function onAuthenticated() {
+    cleanup();
+    document.getElementById('auth-flow').classList.add('hidden');
+    document.getElementById('auth-methods').classList.add('hidden');
+    document.getElementById('auth-success').classList.remove('hidden');
+    document.getElementById('status-badge').className = 'badge badge-green';
+    document.getElementById('status-badge').textContent = 'Connected';
+
+    // Auto-redirect countdown
+    let seconds = 3;
+    const el = document.getElementById('redirect-countdown');
+    countdownTimer = setInterval(() => {
+      seconds--;
+      if (seconds <= 0) {
+        clearInterval(countdownTimer);
+        window.location.href = '/';
+      } else {
+        el.textContent = `Redirecting to dashboard in ${seconds}...`;
+      }
+    }, 1000);
+  }
+
+  function startPolling() {
+    // Clean up any existing connections
+    if (ws) { ws.close(); ws = null; }
+    if (pollInterval) { clearInterval(pollInterval); pollInterval = null; }
+
+    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    ws = new WebSocket(`${proto}//${location.host}/ws/auth-poll`);
+
+    ws.onmessage = (e) => {
+      const data = JSON.parse(e.data);
+      if (data.authenticated) onAuthenticated();
+      if (data.timeout) {
+        // Server-side timeout reached
+        if (ws) { ws.close(); ws = null; }
+      }
+    };
+
+    ws.onerror = () => fallbackToHttpPolling();
+    ws.onclose = () => {
+      // Only fallback if we haven't authenticated yet
+      if (!document.getElementById('auth-success').classList.contains('hidden')) return;
+      if (!pollInterval) fallbackToHttpPolling();
+    };
+  }
+
+  function fallbackToHttpPolling() {
+    if (pollInterval) clearInterval(pollInterval);
+    pollInterval = setInterval(async () => {
+      try {
+        const r = await fetch('/auth/status');
+        const data = await r.json();
+        if (data.authenticated && !data.expired) {
+          clearInterval(pollInterval);
+          pollInterval = null;
+          onAuthenticated();
+        }
+      } catch {}
+    }, 2000);
+  }
+
+  // ─── Device Code ───
+
+  async function startDevice() {
+    showFlow('device');
+    try {
+      const r = await fetch('/auth/device', { method: 'POST' });
+      const data = await r.json();
+      if (data.code) {
+        document.getElementById('device-code').textContent = data.code;
+        document.getElementById('device-link').href = data.url;
+
+        // Start elapsed timer
+        let elapsed = 0;
+        const timerEl = document.getElementById('device-timer');
+        const statusInterval = setInterval(() => {
+          elapsed += 1;
+          const remaining = 300 - elapsed; // ~5 min timeout
+          if (remaining <= 0) {
+            clearInterval(statusInterval);
+            timerEl.textContent = 'Code may have expired. Cancel and try again.';
+            timerEl.style.color = 'var(--red)';
+          } else {
+            const m = Math.floor(remaining / 60);
+            const s = remaining % 60;
+            timerEl.textContent = `Code expires in ${m}:${s.toString().padStart(2, '0')}`;
+          }
+        }, 1000);
+
+        startPolling();
+      } else {
+        document.getElementById('device-status').textContent =
+          'Error: ' + JSON.stringify(data.detail || data.error);
+      }
+    } catch (err) {
+      document.getElementById('device-status').textContent = 'Error: ' + err.message;
+    }
+  }
+
+  function copyDeviceCode() {
+    const code = document.getElementById('device-code').textContent;
+    navigator.clipboard.writeText(code);
+  }
+
+  // ─── Headless PKCE ───
+
+  async function startHeadless() {
+    showFlow('headless');
+    try {
+      const r = await fetch('/auth/headless', { method: 'POST' });
+      const data = await r.json();
+      if (data.authUrl) {
+        const link = document.getElementById('headless-link');
+        link.href = data.authUrl;
+        link.textContent = data.authUrl;
+
+        // Start 5-min timeout countdown
+        let elapsed = 0;
+        const timerEl = document.getElementById('headless-timer');
+        const interval = setInterval(() => {
+          elapsed += 1;
+          const remaining = 300 - elapsed;
+          if (remaining <= 0) {
+            clearInterval(interval);
+            timerEl.textContent = 'Session expired. Cancel and try again.';
+            timerEl.style.color = 'var(--red)';
+          } else {
+            const m = Math.floor(remaining / 60);
+            const s = remaining % 60;
+            timerEl.textContent = `Session expires in ${m}:${s.toString().padStart(2, '0')}`;
+          }
+        }, 1000);
+      } else {
+        document.getElementById('headless-error').textContent =
+          'Error: ' + JSON.stringify(data.detail);
+        document.getElementById('headless-error').classList.remove('hidden');
+      }
+    } catch (err) {
+      document.getElementById('headless-error').textContent = 'Error: ' + err.message;
+      document.getElementById('headless-error').classList.remove('hidden');
+    }
+  }
+
+  async function submitCallbackUrl() {
+    const urlInput = document.getElementById('headless-callback-url');
+    const url = urlInput.value.trim();
+    if (!url) return;
+
+    // Basic client-side validation
+    if (!url.includes('code=') || !url.includes('state=')) {
+      const errEl = document.getElementById('headless-error');
+      errEl.textContent = 'This does not look like a valid callback URL. It should contain "code=" and "state=" parameters.';
+      errEl.classList.remove('hidden');
+      return;
+    }
+
+    const errEl = document.getElementById('headless-error');
+    errEl.classList.add('hidden');
+
+    document.getElementById('headless-step1').classList.add('hidden');
+    document.getElementById('headless-step2').classList.remove('hidden');
+
+    try {
+      const r = await fetch('/auth/headless/callback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url }),
+      });
+      const data = await r.json();
+
+      if (data.status === 'authenticated' || data.accountId) {
+        onAuthenticated();
+      } else {
+        document.getElementById('headless-step2').classList.add('hidden');
+        document.getElementById('headless-step1').classList.remove('hidden');
+        errEl.textContent = data.error || 'Authentication failed';
+        errEl.classList.remove('hidden');
+      }
+    } catch (err) {
+      document.getElementById('headless-step2').classList.add('hidden');
+      document.getElementById('headless-step1').classList.remove('hidden');
+      errEl.textContent = 'Error: ' + err.message;
+      errEl.classList.remove('hidden');
+    }
+  }
+
+  // ─── Browser PKCE ───
+
+  async function startBrowser() {
+    showFlow('browser');
+    try {
+      const r = await fetch('/auth/browser', { method: 'POST' });
+      const data = await r.json();
+      if (data.url) {
+        document.getElementById('browser-link').href = data.url;
+        window.open(data.url, '_blank');
+        startPolling();
+      } else {
+        document.getElementById('browser-status').textContent =
+          'Error: ' + JSON.stringify(data.detail);
+      }
+    } catch (err) {
+      document.getElementById('browser-status').textContent = 'Error: ' + err.message;
+    }
+  }
+
+  // ─── Logout ───
+
+  async function logout() {
+    if (!confirm('Disconnect this account?') ) return;
+    await fetch('/auth/logout', { method: 'POST' });
+    window.location.reload();
+  }
+
+  // Enter key in callback input
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && document.activeElement?.id === 'headless-callback-url') {
+      e.preventDefault();
+      submitCallbackUrl();
+    }
+  });
+</script>
+{% endblock %}

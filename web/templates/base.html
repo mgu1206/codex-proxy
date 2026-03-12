@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}Codex Proxy{% endblock %}</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #0a0a0a; --surface: #141414; --border: #262626;
+      --text: #e5e5e5; --muted: #737373; --accent: #3b82f6;
+      --green: #22c55e; --red: #ef4444; --yellow: #eab308;
+      --radius: 8px;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+      background: var(--bg); color: var(--text);
+      min-height: 100vh; line-height: 1.6;
+    }
+    .container { max-width: 720px; margin: 0 auto; padding: 2rem 1.5rem; }
+    h1 { font-size: 1.5rem; font-weight: 600; margin-bottom: .5rem; }
+    h2 { font-size: 1.1rem; font-weight: 600; margin-bottom: .75rem; color: var(--muted); }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    .card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 1.25rem; margin-bottom: 1rem;
+    }
+    .badge {
+      display: inline-block; padding: .15rem .6rem; border-radius: 999px;
+      font-size: .75rem; font-weight: 600;
+    }
+    .badge-green { background: #052e16; color: var(--green); }
+    .badge-red { background: #2c0b0e; color: var(--red); }
+    .badge-yellow { background: #2c2204; color: var(--yellow); }
+
+    .btn {
+      display: inline-flex; align-items: center; gap: .5rem;
+      padding: .6rem 1.2rem; border-radius: var(--radius);
+      border: 1px solid var(--border); background: var(--surface);
+      color: var(--text); font-size: .875rem; cursor: pointer;
+      transition: all .15s;
+    }
+    .btn:hover { background: var(--border); }
+    .btn-primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+    .btn-primary:hover { opacity: .9; }
+    .btn-danger { color: var(--red); border-color: #7f1d1d; }
+    .btn-danger:hover { background: #2c0b0e; }
+
+    .input {
+      width: 100%; padding: .6rem .8rem; border-radius: var(--radius);
+      border: 1px solid var(--border); background: var(--bg);
+      color: var(--text); font-size: .875rem;
+    }
+    .input:focus { outline: none; border-color: var(--accent); }
+
+    .mono {
+      font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+      background: var(--bg); padding: .15rem .4rem; border-radius: 4px;
+      font-size: .8rem;
+    }
+
+    .nav {
+      display: flex; gap: 1.5rem; padding-bottom: 1.5rem;
+      border-bottom: 1px solid var(--border); margin-bottom: 1.5rem;
+    }
+    .nav a { color: var(--muted); font-size: .875rem; }
+    .nav a.active { color: var(--text); }
+
+    .flex { display: flex; align-items: center; }
+    .gap-2 { gap: .5rem; }
+    .gap-3 { gap: .75rem; }
+    .justify-between { justify-content: space-between; }
+    .mt-2 { margin-top: .5rem; }
+    .mt-3 { margin-top: .75rem; }
+    .mb-2 { margin-bottom: .5rem; }
+    .text-muted { color: var(--muted); font-size: .875rem; }
+    .text-sm { font-size: .875rem; }
+
+    .device-code {
+      font-family: 'SF Mono', monospace;
+      font-size: 2rem; font-weight: 700; letter-spacing: .3rem;
+      text-align: center; padding: 1rem;
+      background: var(--bg); border-radius: var(--radius);
+      border: 2px dashed var(--border);
+    }
+
+    .spinner {
+      display: inline-block; width: 16px; height: 16px;
+      border: 2px solid var(--border); border-top-color: var(--accent);
+      border-radius: 50%; animation: spin .6s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .hidden { display: none; }
+
+    .session-list { list-style: none; }
+    .session-item {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: .75rem 0; border-bottom: 1px solid var(--border);
+    }
+    .session-item:last-child { border-bottom: none; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <nav class="nav">
+      <a href="/" class="{% if active == 'home' %}active{% endif %}">Dashboard</a>
+      <a href="/auth" class="{% if active == 'auth' %}active{% endif %}">Authentication</a>
+    </nav>
+    {% block content %}{% endblock %}
+  </div>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

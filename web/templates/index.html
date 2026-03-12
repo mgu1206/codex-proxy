@@ -1,0 +1,129 @@
+{% extends "base.html" %}
+{% set active = "home" %}
+{% block title %}Dashboard - Codex Proxy{% endblock %}
+
+{% block content %}
+<h1>Codex Proxy</h1>
+<p class="text-muted mb-2">OAuth proxy for OpenAI Codex API</p>
+
+<!-- Auth Status -->
+<div class="card">
+  <div class="flex justify-between">
+    <h2>Authentication</h2>
+    {% if status and status.authenticated and not status.expired %}
+      <span class="badge badge-green">Connected</span>
+    {% elif status and status.expired %}
+      <span class="badge badge-yellow">Expired</span>
+    {% else %}
+      <span class="badge badge-red">Not Connected</span>
+    {% endif %}
+  </div>
+
+  {% if status and status.authenticated %}
+    <p class="text-sm">
+      Account: <span class="mono">{{ status.accountId or "N/A" }}</span>
+    </p>
+  {% endif %}
+
+  {% if not status or not status.authenticated or status.expired %}
+    <a href="/auth" class="btn btn-primary mt-2">Set Up Authentication</a>
+  {% endif %}
+</div>
+
+<!-- Connection Info -->
+<div class="card">
+  <h2>Connection Info</h2>
+  <div class="text-sm" style="display:grid; gap:.4rem;">
+    <div>Status: <span class="mono">{% if status and status.authenticated %}Connected{% else %}Not Connected{% endif %}</span></div>
+  </div>
+</div>
+
+<!-- Sessions -->
+<div class="card">
+  <div class="flex justify-between mb-2">
+    <h2>Sessions</h2>
+    <button class="btn" onclick="createSession()">New Session</button>
+  </div>
+
+  {% if sessions %}
+  <ul class="session-list">
+    {% for s in sessions %}
+    <li class="session-item">
+      <div>
+        <a href="/sessions/{{ s.id }}">{{ s.title or "Untitled" }}</a>
+        <span class="text-muted text-sm"> · {{ s.model }}</span>
+      </div>
+      <button class="btn btn-danger" style="padding:.3rem .6rem;font-size:.75rem;"
+              onclick="deleteSession('{{ s.id }}')">Delete</button>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="text-muted text-sm">No sessions yet.</p>
+  {% endif %}
+</div>
+
+<!-- New Session Modal -->
+<div id="new-session-modal" class="hidden" style="position:fixed;inset:0;background:rgba(0,0,0,.7);display:flex;align-items:center;justify-content:center;z-index:10;">
+  <div class="card" style="width:400px;">
+    <h2>New Session</h2>
+    <div style="display:grid;gap:.75rem;">
+      <input id="ns-title" class="input" placeholder="Title (optional)">
+      <select id="ns-model" class="input">
+        <option value="gpt-4o">gpt-4o</option>
+        <option value="gpt-4o-mini">gpt-4o-mini</option>
+        <option value="gpt-5.3-codex">gpt-5.3-codex</option>
+        <option value="gpt-5.2-codex">gpt-5.2-codex</option>
+        <option value="gpt-5.1-codex">gpt-5.1-codex</option>
+      </select>
+      <input id="ns-system" class="input" placeholder="System prompt (optional)">
+      <div class="flex gap-2 justify-between">
+        <button class="btn" onclick="closeModal()">Cancel</button>
+        <button class="btn btn-primary" onclick="submitSession()">Create</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const modal = document.getElementById('new-session-modal');
+
+  function createSession() {
+    modal.classList.remove('hidden');
+    modal.style.display = 'flex';
+  }
+
+  function closeModal() {
+    modal.classList.add('hidden');
+    modal.style.display = 'none';
+  }
+
+  async function submitSession() {
+    const body = {};
+    const title = document.getElementById('ns-title').value.trim();
+    const model = document.getElementById('ns-model').value;
+    const system = document.getElementById('ns-system').value.trim();
+    if (title) body.title = title;
+    body.model = model;
+    if (system) body.system_prompt = system;
+
+    const r = await fetch('/sessions/create', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await r.json();
+    if (data.id) {
+      window.location.href = '/sessions/' + data.id;
+    }
+  }
+
+  async function deleteSession(id) {
+    if (!confirm('Delete this session?')) return;
+    await fetch('/sessions/' + id, { method: 'DELETE' });
+    window.location.reload();
+  }
+</script>
+{% endblock %}
