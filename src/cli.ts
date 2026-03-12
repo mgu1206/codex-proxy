@@ -19,6 +19,8 @@ import { startDeviceAuth, startHeadlessPKCE, submitCallbackUrl } from "./oauth"
 
 const VERSION = "0.2.0"
 const AUTH_DIR = join(homedir(), ".codex-proxy")
+const PID_FILE = join(AUTH_DIR, "proxy.pid")
+const LOG_FILE = join(AUTH_DIR, "proxy.log")
 
 // ─── Arg Parsing ───
 
@@ -31,6 +33,7 @@ interface ParsedArgs {
   noWeb: boolean
   device: boolean
   help: boolean
+  foreground: boolean
 }
 
 function parseArgs(argv: string[]): ParsedArgs {
@@ -44,6 +47,7 @@ function parseArgs(argv: string[]): ParsedArgs {
     noWeb: false,
     device: false,
     help: false,
+    foreground: false,
   }
 
   for (let i = 1; i < args.length; i++) {
@@ -66,6 +70,10 @@ function parseArgs(argv: string[]): ParsedArgs {
         break
       case "--device":
         result.device = true
+        break
+      case "--foreground":
+      case "-f":
+        result.foreground = true
         break
       case "--help":
       case "-h":
@@ -134,6 +142,26 @@ async function ensureAdminKey(): Promise<string> {
   }
 }
 
+async function cmdInit(argv: string[]): Promise<void> {
+  const key = argv.slice(2).find((a) => !a.startsWith("-") && a !== "init")
+  if (!key) {
+    console.log("  Usage: codex-proxy init <admin-key>")
+    process.exit(1)
+  }
+  if (key.length < 8) {
+    console.log("  [!!] Key must be at least 8 characters.")
+    process.exit(1)
+  }
+  const existing = await getAdminKey()
+  if (existing) {
+    console.log("  [!!] Admin key already configured.")
+    console.log("  Run 'codex-proxy reset-key' first to remove it.")
+    process.exit(1)
+  }
+  await setAdminKey(key)
+  console.log("  [ok] Admin key configured.")
+}
+
 async function cmdResetKey(): Promise<void> {
   await removeAdminKey()
   console.log()
@@ -180,10 +208,106 @@ function stopWebConsole() {
   }
 }
 
+// ─── PID Management ───
+
+async function writePid(): Promise<void> {
+  await mkdir(AUTH_DIR, { recursive: true })
+  await writeFile(PID_FILE, String(process.pid))
+}
+
+async function readPid(): Promise<number | null> {
+  try {
+    const content = await readFile(PID_FILE, "utf-8")
+    return parseInt(content.trim()) || null
+  } catch {
+    return null
+  }
+}
+
+async function removePid(): Promise<void> {
+  try {
+    const { unlink } = await import("fs/promises")
+    await unlink(PID_FILE)
+  } catch {}
+}
+
+function isProcessRunning(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch {
+    return false
+  }
+}
+
+async function daemonize(args: ParsedArgs): Promise<void> {
+  // Admin key must be set before daemonizing (can't prompt in background)
+  const adminKey = await getAdminKey()
+  if (!adminKey) {
+    console.log("  [!!] Admin key not configured. Set it first:")
+    console.log("       codex-proxy serve -f   (foreground, will prompt)")
+    console.log("       codex-proxy auth")
+    process.exit(1)
+  }
+
+  // Check if already running
+  const existingPid = await readPid()
+  if (existingPid && isProcessRunning(existingPid)) {
+    console.log(`  [!!] Already running (PID ${existingPid})`)
+    console.log(`  Run 'codex-proxy stop' first.`)
+    process.exit(1)
+  }
+
+  // Re-spawn self with --foreground flag
+  const scriptPath = process.argv[1]
+  const childArgs = ["bun", "run", scriptPath, args.command, "--foreground"]
+  childArgs.push("--port", String(args.port))
+  childArgs.push("--web-port", String(args.webPort))
+  childArgs.push("--hostname", args.hostname)
+  if (args.noOpen) childArgs.push("--no-open")
+  if (args.noWeb) childArgs.push("--no-web")
+
+  await mkdir(AUTH_DIR, { recursive: true })
+
+  const child = spawn(childArgs.slice(1), {
+    env: process.env,
+    stdin: "ignore",
+    stdout: Bun.file(LOG_FILE),
+    stderr: Bun.file(LOG_FILE),
+  })
+
+  child.unref()
+
+  // Wait briefly and check if the process started successfully
+  await new Promise((r) => setTimeout(r, 500))
+
+  if (child.exitCode !== null) {
+    console.log(`  [!!] Failed to start. Check logs: ${LOG_FILE}`)
+    process.exit(1)
+  }
+
+  console.log()
+  console.log(`  Codex Proxy v${VERSION} started (PID ${child.pid})`)
+  console.log(`  Proxy API:  http://${args.hostname}:${args.port}`)
+  if (args.command === "serve" && !args.noWeb) {
+    console.log(`  Web console: http://localhost:${args.webPort}`)
+  }
+  console.log(`  Logs:       ${LOG_FILE}`)
+  console.log()
+  console.log(`  Stop with:  codex-proxy stop`)
+  console.log()
+}
+
 // ─── Commands ───
 
 async function cmdServe(args: ParsedArgs) {
+  if (!args.foreground) {
+    await daemonize(args)
+    return
+  }
+
   const adminKey = await ensureAdminKey()
+  await writePid()
 
   console.log()
   console.log("  Codex Proxy v" + VERSION)
@@ -217,10 +341,18 @@ async function cmdServe(args: ParsedArgs) {
 
   // Block until signal
   await waitForSignal(server)
+  await removePid()
 }
 
 async function cmdStart(args: ParsedArgs) {
+  if (!args.foreground) {
+    args.noWeb = true
+    await daemonize(args)
+    return
+  }
+
   const adminKey = await ensureAdminKey()
+  await writePid()
 
   console.log()
   console.log("  Codex Proxy v" + VERSION + " (API only)")
@@ -245,6 +377,41 @@ async function cmdStart(args: ParsedArgs) {
 
   console.log()
   await waitForSignal(server)
+  await removePid()
+}
+
+async function cmdStop() {
+  const pid = await readPid()
+  if (!pid) {
+    console.log("  [!!] No running proxy found.")
+    return
+  }
+  if (!isProcessRunning(pid)) {
+    console.log(`  [!!] Process ${pid} not running (stale PID file).`)
+    await removePid()
+    return
+  }
+  try {
+    process.kill(pid, "SIGTERM")
+    console.log(`  [ok] Stopped (PID ${pid})`)
+  } catch (err: any) {
+    console.log(`  [!!] Failed to stop: ${err.message}`)
+  }
+  await removePid()
+}
+
+async function cmdProcessStatus() {
+  const pid = await readPid()
+  if (!pid) {
+    console.log("  [--] Not running.")
+    return
+  }
+  if (isProcessRunning(pid)) {
+    console.log(`  [ok] Running (PID ${pid})`)
+  } else {
+    console.log(`  [--] Not running (stale PID file).`)
+    await removePid()
+  }
 }
 
 async function cmdAuth(args: ParsedArgs) {
@@ -387,10 +554,13 @@ function showHelp() {
     codex-proxy <command> [options]
 
   Commands:
-    serve              Start proxy server + web console
-    start              Start proxy server only (API mode)
+    init <key>         Set admin key (fails if already set)
+    serve              Start proxy + web console (background)
+    start              Start proxy only (background)
+    stop               Stop running proxy
+    status             Show proxy status
     auth               Interactive CLI authentication
-    reset-key          Remove admin key (will prompt on next start)
+    reset-key          Remove admin key
     version            Show version
     help               Show this help
 
@@ -400,14 +570,17 @@ function showHelp() {
     --hostname <host>  Bind address (default: 127.0.0.1)
     --no-open          Don't auto-open browser
     --no-web           Disable web console (serve only)
+    -f, --foreground   Run in foreground (don't detach)
 
   Options (auth):
     --device           Skip method selection, use device code
 
   Examples:
+    codex-proxy init my-secret-key
     codex-proxy serve
-    codex-proxy serve --port 8080 --web-port 8081
-    codex-proxy start --hostname 0.0.0.0
+    codex-proxy serve --port 8080
+    codex-proxy serve -f               # foreground mode
+    codex-proxy stop
     codex-proxy auth --device
 `)
 }
@@ -429,8 +602,17 @@ async function main() {
     case "start":
       await cmdStart(args)
       break
+    case "init":
+      await cmdInit(process.argv)
+      break
     case "auth":
       await cmdAuth(args)
+      break
+    case "stop":
+      await cmdStop()
+      break
+    case "status":
+      await cmdProcessStatus()
       break
     case "reset-key":
       await cmdResetKey()

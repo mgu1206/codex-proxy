@@ -84,8 +84,10 @@ curl -X POST http://localhost:3456/v1/responses \
 ## CLI Commands
 
 ```
-codex-proxy serve              프록시 + 웹 콘솔 시작
-codex-proxy start              프록시만 시작 (API 모드)
+codex-proxy serve              프록시 + 웹 콘솔 시작 (백그라운드)
+codex-proxy start              프록시만 시작 (백그라운드)
+codex-proxy stop               실행 중인 프록시 종료
+codex-proxy status             프록시 실행 상태 확인
 codex-proxy auth               OAuth 인증
 codex-proxy auth --device      Device Code 방식 인증
 codex-proxy reset-key          Admin key 제거
@@ -101,6 +103,7 @@ codex-proxy help               도움말
 --hostname <host>  바인드 주소 (기본: 127.0.0.1)
 --no-open          브라우저 자동 열기 비활성화
 --no-web           웹 콘솔 비활성화
+-f, --foreground   포그라운드에서 실행 (detach 안 함)
 ```
 
 ## API Documentation
