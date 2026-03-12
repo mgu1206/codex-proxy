@@ -2,15 +2,13 @@
  * Session management - SQLite based conversation history with auto-compaction
  */
 import { Database } from "bun:sqlite"
-import { join } from "path"
 import { mkdirSync } from "fs"
-import { homedir } from "os"
 import { randomUUIDv7 } from "bun"
+import { DATA_DIR, SESSIONS_DB } from "./paths"
 
-const DATA_DIR = join(homedir(), ".codex-proxy")
 mkdirSync(DATA_DIR, { recursive: true, mode: 0o700 })
 
-const db = new Database(join(DATA_DIR, "sessions.db"))
+const db = new Database(SESSIONS_DB)
 db.exec("PRAGMA journal_mode=WAL")
 db.exec("PRAGMA foreign_keys=ON")
 

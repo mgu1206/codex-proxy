@@ -10,17 +10,19 @@
  *   codex-proxy help                Show help
  */
 import { readFile, writeFile, mkdir, rename } from "fs/promises"
-import { join } from "path"
-import { homedir } from "os"
+import { join, dirname } from "path"
 import { spawn, type Subprocess } from "bun"
 import { getAdminKey, setAdminKey, removeAdminKey, getToken, validateAdminKey } from "./auth"
 import { startServer, type ProxyServer } from "./server"
 import { startDeviceAuth, startHeadlessPKCE, submitCallbackUrl } from "./oauth"
+import { DATA_DIR, PID_FILE, LOG_FILE } from "./paths"
 
-const VERSION = "0.2.0"
-const AUTH_DIR = join(homedir(), ".codex-proxy")
-const PID_FILE = join(AUTH_DIR, "proxy.pid")
-const LOG_FILE = join(AUTH_DIR, "proxy.log")
+const VERSION = "0.3.0"
+
+/** True when running as a bun-compiled single-file executable */
+const IS_COMPILED = process.execPath === process.argv[1] ||
+  (process.argv[1]?.startsWith("/bun-exec")) ||
+  (!process.execPath.endsWith("bun") && !process.execPath.endsWith("bun.exe"))
 
 // ─── Arg Parsing ───
 
@@ -180,7 +182,11 @@ function startWebConsole(opts: {
   noOpen: boolean
   adminKey: string
 }): Subprocess {
-  const scriptPath = join(import.meta.dir, "..", "web", "main.py")
+  // In compiled mode, web/ is next to the binary
+  // In dev mode (bun run src/cli.ts), import.meta.dir = src/, so ../web/main.py
+  const scriptPath = IS_COMPILED
+    ? join(dirname(process.execPath), "web", "main.py")
+    : join(import.meta.dir, "..", "web", "main.py")
 
   const args = ["python", scriptPath]
   if (opts.noOpen) args.push("--no-open")
@@ -211,7 +217,7 @@ function stopWebConsole() {
 // ─── PID Management ───
 
 async function writePid(): Promise<void> {
-  await mkdir(AUTH_DIR, { recursive: true })
+  await mkdir(DATA_DIR, { recursive: true })
   await writeFile(PID_FILE, String(process.pid))
 }
 
@@ -259,17 +265,19 @@ async function daemonize(args: ParsedArgs): Promise<void> {
   }
 
   // Re-spawn self with --foreground flag
-  const scriptPath = process.argv[1]
-  const childArgs = ["bun", "run", scriptPath, args.command, "--foreground"]
+  // In compiled mode, execPath IS the binary; in dev mode, use bun + script
+  const childArgs = IS_COMPILED
+    ? [process.execPath, args.command, "--foreground"]
+    : ["bun", "run", process.argv[1], args.command, "--foreground"]
   childArgs.push("--port", String(args.port))
   childArgs.push("--web-port", String(args.webPort))
   childArgs.push("--hostname", args.hostname)
   if (args.noOpen) childArgs.push("--no-open")
   if (args.noWeb) childArgs.push("--no-web")
 
-  await mkdir(AUTH_DIR, { recursive: true })
+  await mkdir(DATA_DIR, { recursive: true })
 
-  const child = spawn(childArgs.slice(1), {
+  const child = spawn(IS_COMPILED ? childArgs : childArgs.slice(1), {
     env: process.env,
     stdin: "ignore",
     stdout: Bun.file(LOG_FILE),

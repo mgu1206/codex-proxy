@@ -1,6 +1,6 @@
 {
   "name": "codex-proxy",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "type": "module",
   "bin": {
     "codex-proxy": "src/cli.ts"
@@ -13,7 +13,8 @@
     "serve:api-only": "bun run src/cli.ts start",
     "auth": "bun run src/cli.ts auth",
     "auth:device": "bun run src/cli.ts auth --device",
-    "reset-key": "bun run src/cli.ts reset-key"
+    "reset-key": "bun run src/cli.ts reset-key",
+    "build": "bun build src/cli.ts --compile --outfile codex-proxy"
   },
   "dependencies": {
     "hono": "^4.7.0"

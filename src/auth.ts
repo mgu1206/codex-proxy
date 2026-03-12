@@ -2,8 +2,7 @@
  * Token storage + refresh lock + admin key management
  */
 import { readFile, writeFile, mkdir, rename } from "fs/promises"
-import { dirname, join } from "path"
-import { homedir } from "os"
+import { DATA_DIR, AUTH_FILE, ADMIN_KEY_FILE } from "./paths"
 
 export interface OAuthToken {
   type: "oauth"
@@ -13,15 +12,11 @@ export interface OAuthToken {
   accountId?: string
 }
 
-const AUTH_DIR = join(homedir(), ".codex-proxy")
-const AUTH_FILE = join(AUTH_DIR, "auth.json")
-const ADMIN_KEY_FILE = join(AUTH_DIR, "admin.key")
-
 /** Buffer before actual expiry to avoid mid-request expiration */
 const TOKEN_EXPIRY_BUFFER_MS = 30_000
 
 async function ensureDir(): Promise<void> {
-  await mkdir(AUTH_DIR, { recursive: true, mode: 0o700 })
+  await mkdir(DATA_DIR, { recursive: true, mode: 0o700 })
 }
 
 async function readJson<T>(path: string): Promise<T> {

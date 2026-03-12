@@ -8,7 +8,7 @@ import os from "os"
 import type { ChatMessage } from "./session"
 
 const CODEX_API_ENDPOINT = "https://chatgpt.com/backend-api/codex/responses"
-const VERSION = "0.2.0"
+const VERSION = "0.3.0"
 const USER_AGENT = `codex-proxy/${VERSION} (${os.platform()} ${os.release()}; ${os.arch()})`
 
 /**
